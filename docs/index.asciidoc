@@ -1,0 +1,113 @@
+:plugin: example
+:type: filter
+
+///////////////////////////////////////////
+START - GENERATED VARIABLES, DO NOT EDIT!
+///////////////////////////////////////////
+:version: %VERSION%
+:release_date: %RELEASE_DATE%
+:changelog_url: %CHANGELOG_URL%
+:include_path: ../../../../logstash/docs/include
+///////////////////////////////////////////
+END - GENERATED VARIABLES, DO NOT EDIT!
+///////////////////////////////////////////
+
+[id="plugins-{type}s-{plugin}"]
+
+== logstash-filter-virustotal
+
+=== Example filter plugin
+
+[,logstash]
+----
+filter{
+  virustotal {
+    apikey => 'apikey'
+    file_field => '[path]'
+    weight => 1.0
+    target => 'virustotal'
+    score_name => 'fb_virustotal'
+    timeout => 15
+    latency_name => 'virustotal_latency'
+  }
+}
+----
+
+=== Description
+
+This is an example of Logstash filter plugin for Virustotal. This filter returns a JSON with the result provided by Virustotal and a score about how potentially dangerous is the file.
+
+https://www.virustotal.com/
+
+[id="plugins-{type}s-{plugin}-options"]
+==== Filter Configuration Options
+
+[cols="<,<,<",options="header",]
+|=======================================================================
+|Setting |Input type|Required
+| <<plugins-{type}s-{plugin}-apikey>> |String|Yes
+| <<plugins-{type}s-{plugin}-file_field>> |String|No
+| <<plugins-{type}s-{plugin}-weight>> |Float|No
+| <<plugins-{type}s-{plugin}-target>> |String|No
+| <<plugins-{type}s-{plugin}-score_name>> |String|No
+| <<plugins-{type}s-{plugin}-timeout>> |Number|No
+| <<plugins-{type}s-{plugin}-latency_name>> |String|No
+|=======================================================================
+
+[id="plugins-{type}s-{plugin}-apikey"]
+===== `apikey`
+
+  * Value type is `String`.
+  * Default value is `""`
+
+Get your apikey: https://www.virustotal.com/
+
+[id="plugins-{type}s-{plugin}-file_field"]
+===== `file_field`
+
+* Value type is `String`.
+* Default value is `"[path]"`
+
+Logstash event field (key) where the file to be analyzed is located.
+
+[id="plugins-{type}s-{plugin}-weight"]
+===== `weight`
+
+* Value type is `Float`.
+* Default value is `1.0`
+
+Malware score is calculated dividing the number of positives scans by the total number of antiviruses. This option eases weighing the score.
+
+[id="plugins-{type}s-{plugin}-target"]
+===== `target`
+
+* Value type is `String`.
+* Default value is `"virustotal"`
+
+Logstash event field (key) where the JSON is going to be located.
+
+[id="plugins-{type}s-{plugin}-score_name"]
+===== `score_name`
+
+* Value type is `String`.
+* Default value is `"fb_virustotal"`
+
+Logstash event field (key) where the score is going to be located.
+
+[id="plugins-{type}s-{plugin}-timeout"]
+===== `timeout`
+
+* Value type is `Number`.
+* Default value is `"15"`
+
+Timeout in seconds to make queries using Virustotal API.
+
+[id="plugins-{type}s-{plugin}-latency_name"]
+===== `latency_name`
+
+* Value type is `String`.
+* Default value is `"virustotal_latency"`
+
+Logstash event field (key) where the latency is going to be located.
+
+[id="plugins-{type}s-{plugin}-common-options"]
