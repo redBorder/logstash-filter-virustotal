@@ -4,11 +4,16 @@ require "logstash/namespace"
 
 require 'json'
 require 'faraday'
-require 'rest-client' #TODO
+require 'rest-client'
 require 'digest'
+require 'aerospike'
 
+require_relative "util/aerospike_config"
+require_relative "util/aerospike_methods"
 
 class LogStash::Filters::Virustotal < LogStash::Filters::Base
+
+  include Aerospike
 
   config_name "virustotal"
 
@@ -18,20 +23,35 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   config :file_field,   :validate => :string,  :default => "[path]"
   # Timeout waiting for response
   config :timeout, :validate => :number, :default => 15
-  # Loader weight
-  config :weight, :default => 1.0
   # Where you want the data to be placed
   config :target, :validate => :string, :default => "virustotal"
   # Where you want the score to be placed
   config :score_name, :validate => :string, :default => "fb_virustotal"
   # Where you want the latency to be placed
   config :latency_name, :validate => :string, :default => "virustotal_latency"
+  #Aerospike server in the form "host:port"
+  config :aerospike_server,                 :validate => :string,           :default => ""
+  #Namespace is a Database name in Aerospike
+  config :aerospike_namespace,              :validate => :string,           :default => "malware"
+  #Set in Aerospike is similar to table in a relational database.
+  # Where are scores stored
+  config :aerospike_set,                    :validate => :string,           :default => "hashScores"
 
 
   public
   def register
     # Add instance variables
     @url = "https://www.virustotal.com/api/v3/files"
+
+    begin
+      @aerospike_server = AerospikeConfig::servers if @aerospike_server.empty?
+      @aerospike_server = @aerospike_server[0] if @aerospike_server.class.to_s == "Array"
+      host,port = @aerospike_server.split(":")
+      @aerospike = Client.new(Host.new(host, port))
+
+    rescue Aerospike::Exceptions::Aerospike => ex
+      @logger.error(ex.message)
+    end
   end # def register
 
   private
@@ -89,13 +109,13 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
         total_detected_avs = v if k == 'malicious'
       end
 
-      score = ( (total_detected_avs / total_avs * 100) * @weight ).round
+      score = ( total_detected_avs / total_avs * 100 ).round
 
     rescue Faraday::TimeoutError
       @logger.error("Timeout trying to contact Virustotal")
 
     rescue Faraday::ConnectionFailed => ex
-      puts ex.message
+      @logger.error(ex.message)
     end
     [result, score]
   end
@@ -106,9 +126,9 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     response_code_error = nil
 
     begin
-    file_name = ::File.basename(@path)
-    file =      ::File.open(@path, 'r')
-    options = {filename: file_name, file: file}
+      file_name = ::File.basename(@path)
+      file =      ::File.open(@path, 'r')
+      options = {filename: file_name, file: file}
     rescue Errno::ENOENT=> ex
       @logger.error(ex.message)
       return data_id
@@ -204,7 +224,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     rescue Faraday::TimeoutError
       @logger.error("Timeout trying to contact Virustotal")
     rescue Faraday::ConnectionFailed => ex
-      puts ex.message
+      @logger.error(ex.message)
     end
 
     analysis_stats = result["data"]["attributes"]["stats"]
@@ -216,7 +236,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
       total_detected_avs = v if k == 'malicious'
     end
 
-    score = ( (total_detected_avs / total_avs * 100) * @weight ).round
+    score = ( total_detected_avs / total_avs * 100 ).round
 
     [result, score]
   end
@@ -227,7 +247,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
     @path = event.get(@file_field)
     begin
-      @hash = Digest::MD5.hexdigest File.read @path
+      @hash = Digest::SHA2.new(256).hexdigest File.read @path
     rescue Errno::ENOENT => ex
       @logger.error(ex.message)
     end
@@ -237,7 +257,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     virustotal_result,score = get_response_from_hash
 
     # The hash was not found. Error code 404
-    if virustotal_result["error"]
+    if !virustotal_result.empty? and virustotal_result["error"]
       unless virustotal_result["error"]["code"] == "QuotaExceededError"
         data_id = send_file
         virustotal_result,score = get_response_from_analysis_id(data_id)
@@ -250,6 +270,9 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     event.set(@latency_name, elapsed_time)
     event.set(@target, virustotal_result)
     event.set(@score_name, score)
+
+    AerospikeMethods::update_malware_hash_score(@aerospike, @aerospike_namespace, @aerospike_set, @hash, @score_name, score, "fb")
+
     # filter_matched should go in the last line of our successful code
     filter_matched(event)
 
