@@ -1,7 +1,7 @@
 require "yaml"
 require 'aerospike'
 
-module AerospikeMethods
+module AerospikeManager
 
   WEIGHTS_CONFIG_FILE = "/opt/rb/var/rb-sequence-oozie/conf/weights.yml" unless defined? WEIGHTS_CONFIG_FILE
 
@@ -96,6 +96,20 @@ module AerospikeMethods
     get_records(aerospike, namespace, set).each do |record|
       key = record.key.user_key
       return record if key == hash
+    end
+    return nil
+  end
+
+  def self.get_value(aerospike, namespace, set, hash, field)
+    begin
+      record = get_record(aerospike, namespace, set, hash)
+      unless record.nil?
+        record.bins.each do |entry_key, entry_value|
+          return entry_value if entry_key == field
+        end
+      end
+    rescue Aerospike::Exceptions::Aerospike => ex
+      @logger.error(ex.message)
     end
     return nil
   end
