@@ -96,7 +96,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
       if response_code != 200
         response_message = check_response(response_code)
-        @logger.error(response_message)
+        @logger.info(response_message)
         return [result, score]
       end
 
