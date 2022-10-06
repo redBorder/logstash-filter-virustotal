@@ -60,18 +60,18 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   def check_response(response_code)
 
     case response_code
-      when 400
-        response_message = "CODE 400 Bad Request - Unsupported HTTP method or invalid HTTP request (e.g., empty body)"
-      when 401
-        response_message = "CODE 401 Invalid API key - Either missing API key or invalid API is passed."
-      when 404
-        response_message = "CODE 404 The requested page was not found. Try to upload the file."
-      when 429
+    when 400
+      response_message = "CODE 400 Bad Request - Unsupported HTTP method or invalid HTTP request (e.g., empty body)"
+    when 401
+      response_message = "CODE 401 Invalid API key - Either missing API key or invalid API is passed."
+    when 404
+      response_message = "CODE 404 The requested page was not found. Try to upload the file."
+    when 429
       response_message = "CODE 429 Signature lookup limit reached, try again later - The hourly hash lookup limit has been reached for this API key."
-      when 503
-        response_message = "CODE 503 Internal Server Error - Server temporarily unavailable. Try again later."
-      else #when 200
-      response_message = ""
+    when 503
+      response_message = "CODE 503 Internal Server Error - Server temporarily unavailable. Try again later."
+    else #when 200
+    response_message = ""
     end
 
     response_message
@@ -92,13 +92,14 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
       end
 
       response_code = response.status
+      result = JSON.parse(response.body)
+
       if response_code != 200
         response_message = check_response(response_code)
-        @logger.error(response_message)
+        @logger.info(response_message)
         return [result, score]
       end
 
-      result = JSON.parse(response.body)
 
       last_analysis_stats = result["data"]["attributes"]["last_analysis_stats"]
       total_avs = 0.0
@@ -203,15 +204,16 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     score = -1
     result = {}
     begin
-
-      while progress_status != "completed"
+      max_number_petitions = 100
+      petitions = 0
+      while progress_status != "completed" and petitions < max_number_petitions
         response = connection.get data_id do |req|
           req.headers["x-apikey"] = @apikey
           req.options.timeout = @timeout
           req.options.open_timeout = @timeout
         end
-
-        response_code,response_message = check_response(response)
+        response_code = response.status
+        response_message = check_response(response_code)
         if response_code != 200
           @logger.error(response_message)
           return [score,result]
@@ -219,6 +221,8 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
         result = JSON.parse(response.body)
         progress_status = result["data"]["attributes"]["status"]
+        petititons = petitions + 1
+        sleep 10
       end
 
     rescue Faraday::TimeoutError
@@ -227,16 +231,18 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
       @logger.error(ex.message)
     end
 
-    analysis_stats = result["data"]["attributes"]["stats"]
-    total_avs = 0.0
-    total_detected_avs = 0.0
+    if progress_status == "completed"
+      analysis_stats = result["data"]["attributes"]["stats"]
+      total_avs = 0.0
+      total_detected_avs = 0.0
 
-    analysis_stats.each do |k,v|
-      total_avs += v
-      total_detected_avs = v if k == 'malicious'
+      analysis_stats.each do |k,v|
+        total_avs += v
+        total_detected_avs = v if k == 'malicious'
+      end
+
+      score = ( total_detected_avs / total_avs * 100 ).round
     end
-
-    score = ( total_detected_avs / total_avs * 100 ).round
 
     [result, score]
   end
@@ -244,8 +250,8 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
   public
   def filter(event)
-
     @path = event.get(@file_field)
+    puts "[virustotal] processing #{@path}"
     begin
       @hash = Digest::SHA2.new(256).hexdigest File.read @path
     rescue Errno::ENOENT => ex
@@ -256,12 +262,9 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     starting_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     virustotal_result,score = get_response_from_hash
 
-    # The hash was not found. Error code 404
-    if !virustotal_result.empty? and virustotal_result["error"]
-      unless virustotal_result["error"]["code"] == "QuotaExceededError"
-        data_id = send_file
-        virustotal_result,score = get_response_from_analysis_id(data_id)
-      end
+    if virustotal_result["error"] and virustotal_result["error"]["code"] != "QuotaExceededError"
+      data_id = send_file
+      virustotal_result,score = get_response_from_analysis_id(data_id)
     end
 
     ending_time  = Process.clock_gettime(Process::CLOCK_MONOTONIC)
