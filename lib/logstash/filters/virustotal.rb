@@ -6,57 +6,37 @@ require 'json'
 require 'faraday'
 require 'rest-client'
 require 'digest'
-require 'aerospike'
-
-require_relative "util/aerospike_config"
-require_relative "util/aerospike_manager"
 
 class LogStash::Filters::Virustotal < LogStash::Filters::Base
-
-  include Aerospike
 
   config_name "virustotal"
 
   # Virustotal apikey. Please visit https://www.virustotal.com/ to get your apikey.
-  config :apikey,      :validate => :string,  :default => "",  :required => true
+  config :apikey,                           :validate => :string,  :required => true
   # File that is going to be analyzed
-  config :file_field,   :validate => :string,  :default => "[path]"
+  config :file_field,                       :validate => :string,  :default => "[path]"
   # Timeout waiting for response
-  config :timeout, :validate => :number, :default => 15
+  config :timeout,                          :validate => :number, :default => 15
   # Where you want the data to be placed
-  config :target, :validate => :string, :default => "virustotal"
+  config :target,                           :validate => :string, :default => "virustotal"
   # Where you want the score to be placed
-  config :score_name, :validate => :string, :default => "fb_virustotal"
+  config :score_name,                       :validate => :string, :default => "fb_virustotal"
   # Where you want the latency to be placed
-  config :latency_name, :validate => :string, :default => "virustotal_latency"
-  #Aerospike server in the form "host:port"
-  config :aerospike_server,                 :validate => :string,           :default => ""
-  #Namespace is a Database name in Aerospike
-  config :aerospike_namespace,              :validate => :string,           :default => "malware"
-  #Set in Aerospike is similar to table in a relational database.
-  # Where are scores stored
-  config :aerospike_set,                    :validate => :string,           :default => "hashScores"
-
+  config :latency_name,                     :validate => :string, :default => "virustotal_latency"
 
   public
   def register
     # Add instance variables
     @url = "https://www.virustotal.com/api/v3/files"
 
-    begin
-      @aerospike_server = AerospikeConfig::servers if @aerospike_server.empty?
-      @aerospike_server = @aerospike_server[0] if @aerospike_server.class.to_s == "Array"
-      host,port = @aerospike_server.split(":")
-      @aerospike = Client.new(Host.new(host, port))
-
-    rescue Aerospike::Exceptions::Aerospike => ex
-      @logger.error(ex.message)
-    end
   end # def register
 
   private
 
-  # Returns response message from a given response code
+  # Get response code and message from a Faraday::Response object to Metascan.
+  #
+  # @param response_code - Faraday::Response
+  # @return [String] - String with response_message
   def check_response(response_code)
 
     case response_code
@@ -80,6 +60,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   # Get a JSON with the response from Virustotal and a score from a Hash.
   # If the hash is not in Virustotal, returns an empty JSON and score -1.
   def get_response_from_hash
+    @logger.info("Getting response from hash #{@hash}.")
     connection = Faraday.new @url + "/"
     score = -1
     result = {}
@@ -123,6 +104,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
   # Send file to be analyzed by Virustotal. It returns a String with the analysis ID.
   def send_file
+    @logger.info("Sending file to be analyzed.")
     data_id = nil
     response_code_error = nil
 
@@ -198,6 +180,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
   # Get a JSON with the response from Virustotal and a score from an analysis ID.
   def get_response_from_analysis_id(data_id)
+    @logger.info("Getting response from data id #{data_id}.")
     url = "https://www.virustotal.com/api/v3/analyses/"
     connection = Faraday.new url
     progress_status = "queued"
@@ -221,9 +204,11 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
         result = JSON.parse(response.body)
         progress_status = result["data"]["attributes"]["status"]
-        petititons = petitions + 1
+        petitions += 1
         sleep 10
       end
+
+      @logger.error("Achieved maximum number of petitions") if petitions == max_number_petitions
 
     rescue Faraday::TimeoutError
       @logger.error("Timeout trying to contact Virustotal")
@@ -251,13 +236,19 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   public
   def filter(event)
     @path = event.get(@file_field)
-    puts "[virustotal] processing #{@path}"
-    begin
-      @hash = Digest::SHA2.new(256).hexdigest File.read @path
-    rescue Errno::ENOENT => ex
-      @logger.error(ex.message)
-    end
 
+    @logger.info("[#{@target}] processing #{@path}")
+
+    @hash = event.get('sha256')
+
+    if @hash.nil?
+      begin
+        @hash = Digest::SHA2.new(256).hexdigest File.read @path
+        event.set('sha256', @hash)
+      rescue Errno::ENOENT => ex
+        @logger.error(ex.message)
+      end
+    end
 
     starting_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     virustotal_result,score = get_response_from_hash
@@ -274,10 +265,8 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     event.set(@target, virustotal_result)
     event.set(@score_name, score)
 
-    AerospikeManager::update_malware_hash_score(@aerospike, @aerospike_namespace, @aerospike_set, @hash, @score_name, score, "fb")
-
     # filter_matched should go in the last line of our successful code
     filter_matched(event)
 
   end  # def filter(event)
-end # class LogStash::Filters::Metascan
+end # class LogStash::Filters::Virustotal

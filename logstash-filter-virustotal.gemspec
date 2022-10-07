@@ -22,6 +22,5 @@ Gem::Specification.new do |s|
   s.add_runtime_dependency 'faraday'
   s.add_runtime_dependency 'rest-client',             "= 2.1.0"
   s.add_runtime_dependency 'json',                      "1.8.6"
-  s.add_runtime_dependency 'aerospike',                 "2.5.1"
   s.add_development_dependency 'logstash-devutils',     "2.4.0"
 end
