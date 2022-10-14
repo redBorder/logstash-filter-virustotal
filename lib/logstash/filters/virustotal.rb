@@ -199,7 +199,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
         response_message = check_response(response_code)
         if response_code != 200
           @logger.error(response_message)
-          return [score,result]
+          return [result, score]
         end
 
         result = JSON.parse(response.body)
