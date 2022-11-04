@@ -13,6 +13,8 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
   # Virustotal apikey. Please visit https://www.virustotal.com/ to get your apikey.
   config :apikey,                           :validate => :string,  :required => true
+  # Should upload the file if the hash could not be found in Virustotal DB?
+  config :upload_file,                      :validate => :boolean, :default => false
   # File that is going to be analyzed
   config :file_field,                       :validate => :string,  :default => "[path]"
   # Timeout waiting for response
@@ -254,8 +256,13 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     virustotal_result,score = get_response_from_hash
 
     if virustotal_result["error"] and virustotal_result["error"]["code"] != "QuotaExceededError"
-      data_id = send_file
-      virustotal_result,score = get_response_from_analysis_id(data_id)
+      if @upload_file
+        data_id = send_file
+        virustotal_result,score = get_response_from_analysis_id(data_id)
+      else
+        @logger.info("File is not going to be sent to be analyzed because of selected options.")
+        score = 0
+      end
     end
 
     ending_time  = Process.clock_gettime(Process::CLOCK_MONOTONIC)
