@@ -12,21 +12,24 @@ Add the virustotal score in your Logstash pipeline.
 
 ## Need Help?
 
-Need help? Try sending us an email to support@redborder.com
+Need help? Try sending us an email to <support@redborder.com>
 
 ## Developing
 
 ### 1. Plugin Developement and Testing
 
 #### Code
+
 - To get started, you'll need JRuby with the Bundler gem installed:
-```sh 
+
+```sh
 rvm install jruby-9.2.6.0
 ```
 
 - Clone from the GitHub [logstash-filter-virustotal](https://github.com/redBorder/logstash-filter-virustotal)
 
 - Install dependencies
+
 ```sh
 bundle install
 ```
@@ -50,18 +53,23 @@ bundle exec rspec
 #### 2.1 Run in an installed Logstash
 
 - Build your plugin gem
+
 ```sh
 gem build logstash-filter-virustotal.gemspec
 ```
+
 - Install the plugin from the Logstash home
+
 ```sh
 # Logstash 2.3 and higher
+
 bin/logstash-plugin install --no-verify
 
 # Prior to Logstash 2.3
 bin/plugin install --no-verify
 
 ```
+
 - Start Logstash and proceed to test the plugin
 
 ## Contributing
