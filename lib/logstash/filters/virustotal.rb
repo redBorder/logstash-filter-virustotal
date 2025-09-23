@@ -1,6 +1,7 @@
 # encoding: utf-8
-require "logstash/filters/base"
-require "logstash/namespace"
+
+require 'logstash/filters/base'
+require 'logstash/namespace'
 
 require 'json'
 require 'faraday'
@@ -8,7 +9,7 @@ require 'rest-client'
 require 'digest'
 
 class LogStash::Filters::Virustotal < LogStash::Filters::Base
-  config_name "virustotal"
+  config_name 'virustotal'
 
   # Virustotal apikey. Please visit https://www.virustotal.com/ to get your apikey.
   config :apikey,                           :validate => :string,  :required => true
@@ -17,15 +18,13 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   # File that is going to be analyzed
   config :file_field,                       :validate => :string,  :default => "[path]"
   # Timeout waiting for response
-  config :timeout,                          :validate => :number, :default => 15
+  config :timeout,                          :validate => :number,  :default => 15
   # Where you want the data to be placed
-  config :target,                           :validate => :string, :default => "virustotal"
+  config :target,                           :validate => :string,  :default => "virustotal"
   # Where you want the score to be placed
-  config :score_name,                       :validate => :string, :default => "fb_virustotal"
+  config :score_name,                       :validate => :string,  :default => "fb_virustotal"
   # Where you want the latency to be placed
-  config :latency_name,                     :validate => :string, :default => "virustotal_latency"
-
-  public
+  config :latency_name,                     :validate => :string,  :default => "virustotal_latency"
 
   def register
     # Add instance variables
@@ -49,12 +48,12 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     end
 
     starting_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    virustotal_result, score = get_response_from_hash
+    virustotal_result, score = response_from_hash
 
     if virustotal_result['error'] && virustotal_result['error']['code'] != 'QuotaExceededError'
       if @upload_file
         data_id = send_file
-        virustotal_result, score = get_response_from_analysis_id(data_id)
+        virustotal_result, score = response_from_analysis_id(data_id)
       else
         @logger.info('File is not going to be sent to be analyzed because of selected options.')
         score = 0
@@ -99,7 +98,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
   # Get a JSON with the response from Virustotal and a score from a Hash.
   # If the hash is not in Virustotal, returns an empty JSON and score -1.
-  def get_response_from_hash
+  def response_from_hash
     @logger.info("Getting response from hash #{@hash}.")
     connection = Faraday.new "#{@url}/"
     score = -1
@@ -121,7 +120,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
         return [result, score]
       end
 
-      last_analysis_stats = result["data"]["attributes"]["last_analysis_stats"]
+      last_analysis_stats = result['data']['attributes']['last_analysis_stats']
       total_avs = 0.0
       total_detected_avs = 0.0
 
@@ -132,7 +131,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
       score = (total_detected_avs / total_avs * 100).round
     rescue Faraday::TimeoutError
-      @logger.error("Timeout trying to contact Virustotal")
+      @logger.error('Timeout trying to contact Virustotal')
     rescue Faraday::ConnectionFailed => e
       @logger.error(e.message)
     end
@@ -141,7 +140,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
   # Send file to be analyzed by Virustotal. It returns a String with the analysis ID.
   def send_file
-    @logger.info("Sending file to be analyzed.")
+    @logger.info('Sending file to be analyzed.')
     data_id = nil
     response_code_error = nil
 
@@ -169,14 +168,14 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
 
     begin
       response = RestClient::Request.execute(
-        method: "post",
+        method: 'post',
         url: url,
         headers: { 'x-apikey' => @apikey },
         timeout: @timeout,
         payload: options
       )
     rescue RestClient::Exceptions::ReadTimeout
-      @logger.error("Timeout trying to contact Virustotal")
+      @logger.error('Timeout trying to contact Virustotal')
       return data_id
     rescue RestClient::Exception => e
       response_code_error = e.http_code
@@ -188,7 +187,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
       return data_id
     end
 
-    JSON.parse(response.body)["data"]["id"]
+    JSON.parse(response.body)['data']['id']
   end
 
   # Get a URL for uploading files larger than 32MB
@@ -198,14 +197,14 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     begin
       connection = Faraday.new upload_url
       response = connection.get do |req|
-        req.headers["x-apikey"] = @apikey
+        req.headers['x-apikey'] = @apikey
         req.options.timeout = @timeout
         req.options.open_timeout = @timeout
       end
 
-      url = JSON.parse(response.body)["data"]
+      url = JSON.parse(response.body)['data']
     rescue Faraday::TimeoutError
-      @logger.error("Timeout trying to contact Virustotal")
+      @logger.error('Timeout trying to contact Virustotal')
     rescue Faraday::ConnectionFailed => e
       @logger.error(e.message)
     end
@@ -214,7 +213,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   end
 
   # Get a JSON with the response from Virustotal and a score from an analysis ID.
-  def get_response_from_analysis_id(data_id)
+  def response_from_analysis_id(data_id)
     @logger.info("Getting response from data id #{data_id}.")
     url = 'https://www.virustotal.com/api/v3/analyses/'
     connection = Faraday.new url
@@ -238,20 +237,20 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
         end
 
         result = JSON.parse(response.body)
-        progress_status = result["data"]["attributes"]["status"]
+        progress_status = result['data']['attributes']['status']
         petitions += 1
         sleep 10
       end
 
-      @logger.error("Achieved maximum number of petitions") if petitions == max_number_petitions
+      @logger.error('Achieved maximum number of petitions') if petitions == max_number_petitions
     rescue Faraday::TimeoutError
-      @logger.error("Timeout trying to contact Virustotal")
-    rescue Faraday::ConnectionFailed => ex
-      @logger.error(ex.message)
+      @logger.error('Timeout trying to contact Virustotal')
+    rescue Faraday::ConnectionFailed => e
+      @logger.error(e.message)
     end
 
     if progress_status == 'completed'
-      analysis_stats = result["data"]["attributes"]["stats"]
+      analysis_stats = result['data']['attributes']['stats']
       total_avs = 0.0
       total_detected_avs = 0.0
 
