@@ -8,7 +8,6 @@ require 'rest-client'
 require 'digest'
 
 class LogStash::Filters::Virustotal < LogStash::Filters::Base
-
   config_name "virustotal"
 
   # Virustotal apikey. Please visit https://www.virustotal.com/ to get your apikey.
@@ -27,11 +26,51 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   config :latency_name,                     :validate => :string, :default => "virustotal_latency"
 
   public
+
   def register
     # Add instance variables
-    @url = "https://www.virustotal.com/api/v3/files"
+    @url = 'https://www.virustotal.com/api/v3/files'
+  end
 
-  end # def register
+  def filter(event)
+    @path = event.get(@file_field)
+
+    @logger.info("[#{@target}] processing #{@path}")
+
+    @hash = event.get('sha256')
+
+    if @hash.nil?
+      begin
+        @hash = Digest::SHA2.new(256).hexdigest File.read @path
+        event.set('sha256', @hash)
+      rescue Errno::ENOENT => e
+        @logger.error(e.message)
+      end
+    end
+
+    starting_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    virustotal_result, score = get_response_from_hash
+
+    if virustotal_result['error'] && virustotal_result['error']['code'] != 'QuotaExceededError'
+      if @upload_file
+        data_id = send_file
+        virustotal_result, score = get_response_from_analysis_id(data_id)
+      else
+        @logger.info('File is not going to be sent to be analyzed because of selected options.')
+        score = 0
+      end
+    end
+
+    ending_time  = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    elapsed_time = (ending_time - starting_time).round(1)
+
+    event.set(@latency_name, elapsed_time)
+    event.set(@target, virustotal_result)
+    event.set(@score_name, score)
+
+    # filter_matched should go in the last line of our successful code
+    filter_matched(event)
+  end
 
   private
 
@@ -40,20 +79,19 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   # @param response_code - Faraday::Response
   # @return [String] - String with response_message
   def check_response(response_code)
-
     case response_code
     when 400
-      response_message = "CODE 400 Bad Request - Unsupported HTTP method or invalid HTTP request (e.g., empty body)"
+      response_message = 'CODE 400 Bad Request - Unsupported HTTP method or invalid HTTP request (e.g., empty body)'
     when 401
-      response_message = "CODE 401 Invalid API key - Either missing API key or invalid API is passed."
+      response_message = 'CODE 401 Invalid API key - Either missing API key or invalid API is passed.'
     when 404
-      response_message = "CODE 404 The requested page was not found. Try to upload the file."
+      response_message = 'CODE 404 The requested page was not found. Try to upload the file.'
     when 429
-      response_message = "CODE 429 Signature lookup limit reached, try again later - The hourly hash lookup limit has been reached for this API key."
+      response_message = 'CODE 429 Signature lookup limit reached, try again later - The hourly hash lookup limit has been reached for this API key.'
     when 503
-      response_message = "CODE 503 Internal Server Error - Server temporarily unavailable. Try again later."
-    else #when 200
-    response_message = ""
+      response_message = 'CODE 503 Internal Server Error - Server temporarily unavailable. Try again later.'
+    else # when 200
+      response_message = ''
     end
 
     response_message
@@ -63,13 +101,13 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   # If the hash is not in Virustotal, returns an empty JSON and score -1.
   def get_response_from_hash
     @logger.info("Getting response from hash #{@hash}.")
-    connection = Faraday.new @url + "/"
+    connection = Faraday.new "#{@url}/"
     score = -1
     result = {}
 
     begin
       response = connection.get @hash do |req|
-        req.headers["x-apikey"] = @apikey
+        req.headers['x-apikey'] = @apikey
         req.options.timeout = @timeout
         req.options.open_timeout = @timeout
       end
@@ -83,23 +121,20 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
         return [result, score]
       end
 
-
       last_analysis_stats = result["data"]["attributes"]["last_analysis_stats"]
       total_avs = 0.0
       total_detected_avs = 0.0
 
-      last_analysis_stats.each do |k,v|
+      last_analysis_stats.each do |k, v|
         total_avs += v
         total_detected_avs = v if k == 'malicious'
       end
 
-      score = ( total_detected_avs / total_avs * 100 ).round
-
+      score = (total_detected_avs / total_avs * 100).round
     rescue Faraday::TimeoutError
       @logger.error("Timeout trying to contact Virustotal")
-
-    rescue Faraday::ConnectionFailed => ex
-      @logger.error(ex.message)
+    rescue Faraday::ConnectionFailed => e
+      @logger.error(e.message)
     end
     [result, score]
   end
@@ -113,12 +148,12 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     begin
       file_name = ::File.basename(@path)
       file =      ::File.open(@path, 'r')
-      options = {filename: file_name, file: file}
-    rescue Errno::ENOENT=> ex
-      @logger.error(ex.message)
+      options = { filename: file_name, file: file }
+    rescue Errno::ENOENT => e
+      @logger.error(e.message)
       return data_id
-    rescue Errno::EACCES=> ex
-      @logger.error(ex.message)
+    rescue Errno::EACCES => e
+      @logger.error(e.message)
       return data_id
     end
 
@@ -143,8 +178,8 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     rescue RestClient::Exceptions::ReadTimeout
       @logger.error("Timeout trying to contact Virustotal")
       return data_id
-    rescue RestClient::Exception => ex
-      response_code_error = ex.http_code
+    rescue RestClient::Exception => e
+      response_code_error = e.http_code
     end
 
     if response_code_error
@@ -154,12 +189,11 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     end
 
     JSON.parse(response.body)["data"]["id"]
-
   end
 
   # Get a URL for uploading files larger than 32MB
   def get_url_large_files
-    upload_url = "https://www.virustotal.com/api/v3/files/upload_url"
+    upload_url = 'https://www.virustotal.com/api/v3/files/upload_url'
     url = nil
     begin
       connection = Faraday.new upload_url
@@ -170,11 +204,10 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
       end
 
       url = JSON.parse(response.body)["data"]
-
     rescue Faraday::TimeoutError
       @logger.error("Timeout trying to contact Virustotal")
-    rescue Faraday::ConnectionFailed => ex
-      @logger.error(ex.message)
+    rescue Faraday::ConnectionFailed => e
+      @logger.error(e.message)
     end
 
     url
@@ -183,17 +216,17 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   # Get a JSON with the response from Virustotal and a score from an analysis ID.
   def get_response_from_analysis_id(data_id)
     @logger.info("Getting response from data id #{data_id}.")
-    url = "https://www.virustotal.com/api/v3/analyses/"
+    url = 'https://www.virustotal.com/api/v3/analyses/'
     connection = Faraday.new url
-    progress_status = "queued"
+    progress_status = 'queued'
     score = -1
     result = {}
     begin
       max_number_petitions = 100
       petitions = 0
-      while progress_status != "completed" and petitions < max_number_petitions
+      while progress_status != 'completed' && petitions < max_number_petitions
         response = connection.get data_id do |req|
-          req.headers["x-apikey"] = @apikey
+          req.headers['x-apikey'] = @apikey
           req.options.timeout = @timeout
           req.options.open_timeout = @timeout
         end
@@ -211,69 +244,25 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
       end
 
       @logger.error("Achieved maximum number of petitions") if petitions == max_number_petitions
-
     rescue Faraday::TimeoutError
       @logger.error("Timeout trying to contact Virustotal")
     rescue Faraday::ConnectionFailed => ex
       @logger.error(ex.message)
     end
 
-    if progress_status == "completed"
+    if progress_status == 'completed'
       analysis_stats = result["data"]["attributes"]["stats"]
       total_avs = 0.0
       total_detected_avs = 0.0
 
-      analysis_stats.each do |k,v|
+      analysis_stats.each do |k, v|
         total_avs += v
         total_detected_avs = v if k == 'malicious'
       end
 
-      score = ( total_detected_avs / total_avs * 100 ).round
+      score = (total_detected_avs / total_avs * 100).round
     end
 
     [result, score]
   end
-
-
-  public
-  def filter(event)
-    @path = event.get(@file_field)
-
-    @logger.info("[#{@target}] processing #{@path}")
-
-    @hash = event.get('sha256')
-
-    if @hash.nil?
-      begin
-        @hash = Digest::SHA2.new(256).hexdigest File.read @path
-        event.set('sha256', @hash)
-      rescue Errno::ENOENT => ex
-        @logger.error(ex.message)
-      end
-    end
-
-    starting_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    virustotal_result,score = get_response_from_hash
-
-    if virustotal_result["error"] and virustotal_result["error"]["code"] != "QuotaExceededError"
-      if @upload_file
-        data_id = send_file
-        virustotal_result,score = get_response_from_analysis_id(data_id)
-      else
-        @logger.info("File is not going to be sent to be analyzed because of selected options.")
-        score = 0
-      end
-    end
-
-    ending_time  = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    elapsed_time = (ending_time - starting_time).round(1)
-
-    event.set(@latency_name, elapsed_time)
-    event.set(@target, virustotal_result)
-    event.set(@score_name, score)
-
-    # filter_matched should go in the last line of our successful code
-    filter_matched(event)
-
-  end  # def filter(event)
-end # class LogStash::Filters::Virustotal
+end
