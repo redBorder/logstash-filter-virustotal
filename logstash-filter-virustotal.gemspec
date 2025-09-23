@@ -18,9 +18,8 @@ Gem::Specification.new do |s|
   s.metadata = { "logstash_plugin" => "true", "logstash_group" => "filter" }
 
   # Gem dependencies
-  s.add_runtime_dependency "logstash-core-plugin-api", "~> 2.0"
   s.add_runtime_dependency 'faraday'
-  s.add_runtime_dependency 'rest-client',             "= 2.1.0"
-  s.add_runtime_dependency 'json',                      "1.8.6"
-  s.add_development_dependency 'logstash-devutils',     "2.4.0"
+  s.add_runtime_dependency 'logstash-core-plugin-api', '~> 2.0'
+  s.add_runtime_dependency 'rest-client',              '= 2.1.0'
+  s.add_development_dependency 'logstash-devutils'
 end
