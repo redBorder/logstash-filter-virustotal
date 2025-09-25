@@ -14,7 +14,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   # Virustotal apikey. Please visit https://www.virustotal.com/ to get your apikey.
   config :apikey,                           :validate => :string,  :required => true
   # Should upload the file if the hash could not be found in Virustotal DB?
-  config :upload_file,                      :validate => :boolean, :default => false
+  config :upload_file,                      :validate => :boolean, :default => true
   # File that is going to be analyzed
   config :file_field,                       :validate => :string,  :default => "[path]"
   # Timeout waiting for response
