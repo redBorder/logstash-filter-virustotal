@@ -160,7 +160,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
     # File.size(@path) returns file size in bytes
     # 1 MB are 1048576 bytes, so:
     if File.size(@path) > 32 * 1048576
-      url = get_url_large_files
+      url = url_large_files
       return data_id if url.nil?
     else
       url = @url
@@ -191,7 +191,7 @@ class LogStash::Filters::Virustotal < LogStash::Filters::Base
   end
 
   # Get a URL for uploading files larger than 32MB
-  def get_url_large_files
+  def url_large_files
     upload_url = 'https://www.virustotal.com/api/v3/files/upload_url'
     url = nil
     begin
